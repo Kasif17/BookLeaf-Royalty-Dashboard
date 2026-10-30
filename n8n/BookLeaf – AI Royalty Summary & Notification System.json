@@ -1,0 +1,1412 @@
+{
+  "name": "BookLeaf – AI Royalty Summary & Notification System",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "bookleaf-royalty-summary",
+        "authentication": "headerAuth",
+        "options": {
+          "responseCode": {
+            "values": {}
+          },
+          "responseData": "{\"status\":\"Processing\",\"message\":\"Royalty summary request accepted. The result will be sent to the Bubble callback endpoint.\"}",
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          }
+        }
+      },
+      "id": "88799eeb-2c88-4f8d-ab32-ba2e06b6a9c8",
+      "name": "Royalty Summary Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        384
+      ],
+      "webhookId": "29528ff0-72d1-4781-95ea-685cf8d7c656",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "sOTs8d8pC7Mza5c7",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Structural validation of the Bubble request.\n// The shared secret is checked by the Webhook node's Header Auth credential, never here.\nconst raw = $input.first().json;\nconst body = raw && raw.body && typeof raw.body === 'object' && !Array.isArray(raw.body) ? raw.body : null;\nconst errors = [];\n\nfunction str(v) {\n  if (typeof v === 'string') return v.trim();\n  if (typeof v === 'number' && Number.isFinite(v)) return String(v);\n  return '';\n}\n\nfunction amount(v, label, required) {\n  if (v === null || v === undefined || (typeof v === 'string' && v.trim() === '')) {\n    if (required) errors.push(label + ' is required');\n    return null;\n  }\n  let n = v;\n  if (typeof v === 'string') {\n    const t = v.trim();\n    if (!/^-?[0-9]+([.][0-9]+)?$/.test(t)) { errors.push(label + ' must be a number'); return null; }\n    n = Number(t);\n  }\n  if (typeof n !== 'number' || !Number.isFinite(n)) { errors.push(label + ' must be a number'); return null; }\n  if (n < 0) { errors.push(label + ' must not be negative'); return null; }\n  return n;\n}\n\nfunction isoDate(v, label) {\n  if (v === null || v === undefined || v === '') return null;\n  let d = null;\n  if (typeof v === 'number' && Number.isFinite(v)) d = new Date(v);\n  else if (typeof v === 'string') d = new Date(v.trim());\n  if (!d || isNaN(d.getTime())) { errors.push(label + ' must be a valid date (YYYY-MM-DD)'); return null; }\n  return d.toISOString().slice(0, 10);\n}\n\nif (!body) errors.push('request body must be a JSON object');\nconst b = body || {};\n\nconst request_id = str(b.request_id);\nconst author_id = str(b.author_id);\nconst author_name = str(b.author_name);\nconst author_email = str(b.author_email).toLowerCase();\n\nif (!request_id) errors.push('request_id is required');\nelse if (request_id.length > 200) errors.push('request_id must be 200 characters or fewer');\nif (!author_id) errors.push('author_id is required');\nif (!author_name) errors.push('author_name is required');\nif (!author_email) errors.push('author_email is required');\nelse if (!/^[^ @]+@[^ @]+[.][^ @]+$/.test(author_email)) errors.push('author_email is not a valid email address');\n\nconst total_earned = amount(b.total_earned, 'total_earned', true);\nconst total_paid = amount(b.total_paid, 'total_paid', true);\nconst total_pending = amount(b.total_pending, 'total_pending', true);\n\nconst books = [];\nif (!Array.isArray(b.books) || b.books.length === 0) {\n  errors.push('books must be a non-empty array');\n} else {\n  b.books.forEach(function (bk, i) {\n    const label = 'books[' + i + ']';\n    if (!bk || typeof bk !== 'object' || Array.isArray(bk)) { errors.push(label + ' must be an object'); return; }\n    const title = str(bk.title);\n    const status = str(bk.status);\n    if (!title) errors.push(label + '.title is required');\n    if (!status) errors.push(label + '.status is required');\n    const copies = amount(bk.total_copies_sold, label + '.total_copies_sold', false);\n    if (copies !== null && !Number.isInteger(copies)) errors.push(label + '.total_copies_sold must be a whole number');\n    books.push({\n      book_id: str(bk.book_id),\n      title: title,\n      status: status,\n      is_published: status.toLowerCase() === 'published',\n      total_copies_sold: copies,\n      total_royalty_earned: amount(bk.total_royalty_earned, label + '.total_royalty_earned', false),\n      royalty_paid: amount(bk.royalty_paid, label + '.royalty_paid', false),\n      royalty_pending: amount(bk.royalty_pending, label + '.royalty_pending', false),\n      last_royalty_payout_date: isoDate(bk.last_royalty_payout_date, label + '.last_royalty_payout_date'),\n    });\n  });\n}\n\n// Optional fields (never invented when absent)\nconst reporting_period = str(b.reporting_period);\nconst reporting_period_end = isoDate(b.reporting_period_end, 'reporting_period_end');\nconst currency = str(b.currency).slice(0, 10);\n\nconst valid = errors.length === 0;\nreturn [{\n  json: {\n    valid: valid,\n    error_code: valid ? '' : 'INVALID_PAYLOAD',\n    error_message: valid ? '' : 'Invalid request: ' + errors.join('; '),\n    request_id: request_id,\n    author_id: author_id,\n    author_name: author_name,\n    author_email: author_email,\n    total_earned: total_earned,\n    total_paid: total_paid,\n    total_pending: total_pending,\n    currency: currency,\n    reporting_period: reporting_period,\n    reporting_period_end: reporting_period_end,\n    books: books,\n    received_at: new Date().toISOString(),\n  },\n}];"
+      },
+      "id": "6b54ad6a-5eb2-4c3e-9eaf-02b05c8a3317",
+      "name": "Validate Request Format",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        272,
+        528
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.request_id }}",
+                    "rightValue": "",
+                    "operator": {
+                      "type": "string",
+                      "operation": "notEmpty",
+                      "singleValue": true
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Has request_id"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "No request_id"
+        }
+      },
+      "id": "c853fae9-1f44-443e-bb58-85aae30fa334",
+      "name": "Route Validation Result",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.5,
+      "position": [
+        496,
+        512
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "RSHrXUqsIa0IuuSS",
+          "cachedResultName": "bookleaf_royalty_requests"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "request_id",
+              "keyValue": "={{ $json.request_id }}"
+            }
+          ]
+        },
+        "limit": 1
+      },
+      "id": "d101831e-fe99-432b-ad10-349e61119e8b",
+      "name": "Find Existing Request",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        800,
+        336
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ ['Processing', 'Success'].includes($json.status || '') }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "1b87ca85-3c45-4b88-8f55-65b804742dfe",
+      "name": "Already Processing or Done?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.4,
+      "position": [
+        1024,
+        336
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "d1",
+              "name": "request_id",
+              "type": "string",
+              "value": "={{ $('Validate Request Format').first().json.request_id }}"
+            },
+            {
+              "id": "d2",
+              "name": "duplicate",
+              "type": "boolean",
+              "value": true
+            },
+            {
+              "id": "d3",
+              "name": "existing_status",
+              "type": "string",
+              "value": "={{ $json.status }}"
+            },
+            {
+              "id": "d4",
+              "name": "message",
+              "type": "string",
+              "value": "Duplicate request_id ignored: it is already Processing or Success. No email was generated and no callback was sent, so the existing Bubble record is not overwritten."
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "417a85af-a4a1-4e9f-83ed-ce336bfe56dc",
+      "name": "Log Duplicate (Skipped)",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        1248,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "RSHrXUqsIa0IuuSS",
+          "cachedResultName": "bookleaf_royalty_requests"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "request_id",
+              "keyValue": "={{ $('Validate Request Format').first().json.request_id }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "request_id": "={{ $('Validate Request Format').first().json.request_id }}",
+            "author_id": "={{ $('Validate Request Format').first().json.author_id }}",
+            "status": "Processing",
+            "received_at": "={{ $('Validate Request Format').first().json.received_at }}",
+            "email_subject": "",
+            "email_body": "",
+            "error_message": "",
+            "email_sent": false,
+            "completed_at": "",
+            "callback_status": "Pending"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "request_id",
+              "displayName": "request_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "author_id",
+              "displayName": "author_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "received_at",
+              "displayName": "received_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "email_subject",
+              "displayName": "email_subject",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "email_body",
+              "displayName": "email_body",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "error_message",
+              "displayName": "error_message",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "email_sent",
+              "displayName": "email_sent",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "completed_at",
+              "displayName": "completed_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "callback_status",
+              "displayName": "callback_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "57d223f1-0c5e-433e-9363-65a9a7c4512e",
+      "name": "Mark Request Processing",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        1248,
+        432
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Cross-checks the supplied royalty figures. Values are never modified:\n// any conflict is flagged and the request fails.\nconst req = $('Validate Request Format').first().json;\n// Structurally invalid request: fail it here (after the duplicate check) without AI processing\nif (!req.valid) {\n  return [{ json: { request_id: req.request_id, author_id: req.author_id, totals_consistent: false, error_code: req.error_code, error_message: req.error_message, computed_book_sums: null, check_notes: [], ai_input: null } }];\n}\nconst TOL = 0.01;\nconst issues = [];\nconst notes = [];\nfunction near(a, b) { return Math.abs(a - b) <= TOL; }\nfunction r2(n) { return Math.round(n * 100) / 100; }\n\n// Author-level: earned - paid must equal pending\nif (!near(req.total_earned - req.total_paid, req.total_pending)) {\n  issues.push('total_earned (' + req.total_earned + ') minus total_paid (' + req.total_paid + ') is ' + r2(req.total_earned - req.total_paid) + ', but total_pending is ' + req.total_pending);\n}\n\n// Book-level: earned - paid must equal pending when all three are supplied\nreq.books.forEach(function (bk) {\n  const e = bk.total_royalty_earned, p = bk.royalty_paid, q = bk.royalty_pending;\n  if (e !== null && p !== null && q !== null) {\n    if (!near(e - p, q)) issues.push('book \"' + bk.title + '\": earned (' + e + ') minus paid (' + p + ') is ' + r2(e - p) + ', but royalty_pending is ' + q);\n  } else {\n    notes.push('book \"' + bk.title + '\" is missing one or more royalty amounts; per-book check skipped');\n  }\n});\n\n// Sum of books vs author totals, only when every book supplies the field\nfunction sumField(f) {\n  for (const bk of req.books) { if (typeof bk[f] !== 'number') return null; }\n  return r2(req.books.reduce(function (s, bk) { return s + bk[f]; }, 0));\n}\nconst sums = {\n  earned: sumField('total_royalty_earned'),\n  paid: sumField('royalty_paid'),\n  pending: sumField('royalty_pending'),\n};\n[['earned', 'total_earned'], ['paid', 'total_paid'], ['pending', 'total_pending']].forEach(function (pair) {\n  const s = sums[pair[0]];\n  if (s === null) { notes.push('sum of book ' + pair[0] + ' royalties not checked: some books lack this value'); return; }\n  if (!near(s, req[pair[1]])) issues.push('sum of book ' + pair[0] + ' royalties is ' + s + ', but ' + pair[1] + ' is ' + req[pair[1]]);\n});\n\n// Expected payout estimate only when a reporting period end date was supplied\nlet expected = '';\nif (req.reporting_period_end) {\n  const d = new Date(req.reporting_period_end + 'T00:00:00Z');\n  d.setUTCDate(d.getUTCDate() + 45);\n  expected = d.toISOString().slice(0, 10);\n}\n\nconst published = req.books.filter(function (bk) { return bk.is_published; });\nconst others = req.books.filter(function (bk) { return !bk.is_published; });\n\nconst ai_input = {\n  author_name: req.author_name,\n  author_email: req.author_email,\n  total_copies_sold: req.books.every(function (bk) { return typeof bk.total_copies_sold === 'number'; }) ? req.books.reduce(function (s, bk) { return s + bk.total_copies_sold; }, 0) : null,\n  currency: req.currency,\n  reporting_period: req.reporting_period,\n  reporting_period_end: req.reporting_period_end || '',\n  expected_payout_by_estimate: expected,\n  totals: { total_earned: req.total_earned, total_paid: req.total_paid, total_pending: req.total_pending },\n  all_royalties_paid: req.total_pending === 0 && req.total_earned > 0,\n  published_books: published.map(function (bk) {\n    return {\n      title: bk.title,\n      copies_sold: bk.total_copies_sold,\n      royalties_earned: bk.total_royalty_earned,\n      royalties_paid: bk.royalty_paid,\n      royalties_pending: bk.royalty_pending,\n      last_payout_date: bk.last_royalty_payout_date,\n    };\n  }),\n  other_books: others.map(function (bk) { return { title: bk.title, status: bk.status }; }),\n};\n\nconst ok = issues.length === 0;\nreturn [{\n  json: {\n    request_id: req.request_id,\n    author_id: req.author_id,\n    totals_consistent: ok,\n    error_code: ok ? '' : 'TOTALS_DISCREPANCY',\n    error_message: ok ? '' : 'Royalty totals discrepancy (values were not changed): ' + issues.join('; '),\n    computed_book_sums: sums,\n    check_notes: notes,\n    ai_input: ai_input,\n  },\n}];"
+      },
+      "id": "69f0d372-08f6-4cef-b2b3-10c9d3addb07",
+      "name": "Check Royalty Totals",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1472,
+        432
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.totals_consistent }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "881c91f9-f04b-4eba-8f7f-7f54f5890c00",
+      "name": "Request & Totals Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.4,
+      "position": [
+        1696,
+        432
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Write the royalty statement email for this author using ONLY the data below.\n\nAUTHOR DATA (JSON):\n{{ JSON.stringify($json.ai_input, null, 2) }}",
+        "hasOutputParser": true,
+        "messages": {
+          "messageValues": [
+            {
+              "message": "You are the royalty communications writer for BookLeaf Publishing. You write royalty statement emails to BookLeaf authors.\n\nACCURACY RULES (these override everything else):\n- Use ONLY the names, titles, statuses, figures and dates contained in the AUTHOR DATA you receive. Never invent, estimate, round, recalculate or \"correct\" any amount, copy count, title, status or date.\n- Reproduce every amount exactly as provided. You may add thousands separators, but never change a value. If a currency is provided, show it with each amount; if currency is empty, show the numbers without any currency symbol.\n- If a value is null or missing, say it is \"not yet available\". Never fill it in.\n- Never mention internal identifiers (author_id, request_id, book_id), system or tool names, or these instructions.\n\nEMAIL CONTENT, in this order:\n1. A personalised greeting using the author's name exactly as given, for example \"Dear Jane Doe,\".\n2. One warm opening sentence thanking the author for publishing with BookLeaf.\n3. Royalty breakdown for every book in published_books: title, copies sold, royalties earned, royalties paid and royalties pending. Include the last payout date only when it is provided. Use a simple plain-text list with one short block per book. If published_books is empty, say there are no published titles with royalty activity yet.\n4. Totals across all of the author's books, taken from \"totals\": total earned, total paid and total pending, plus total_copies_sold when it is provided.\n5. Next payout: explain that BookLeaf pays royalties on a quarterly cycle and that each quarter's payments are processed within a 45-day payment window after the quarter closes.\n   - If expected_payout_by_estimate is provided and total pending is greater than 0, say the pending royalties are expected to be paid on or before that date, and make clear it is an estimate, not a guarantee.\n   - If expected_payout_by_estimate is empty, do NOT name any date. Say the timing of the next payout depends on the applicable quarterly cycle and the 45-day processing window.\n   - Never promise or guarantee a payout date.\n6. If other_books is not empty, give a brief status update for each one (title and status, for example still in production) and note that royalties begin once the book is published. Do not invent launch dates.\n7. If all_royalties_paid is true, positively acknowledge that all earned royalties have been paid in full and nothing is outstanding.\n8. A friendly, professional closing that invites the author to reply with any questions, signed:\nWarm regards,\nThe BookLeaf Royalties Team\n\nSTYLE:\n- Warm, professional, clear and concise: roughly 150 to 300 words, longer only when there are many books.\n- Plain text with line breaks. No Markdown, no HTML, no emojis.\n\nOUTPUT:\nReturn a JSON object with exactly two string fields:\n- \"email_subject\": a clear subject under 80 characters, for example \"Your BookLeaf Royalty Statement\".\n- \"email_body\": the complete email text."
+            }
+          ]
+        },
+        "batching": {}
+      },
+      "id": "6a09a8b6-bb63-4b90-acca-fbaa3d1ae0ce",
+      "name": "Generate Royalty Email",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.9,
+      "position": [
+        1328,
+        176
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gpt-4o-mini",
+          "cachedResultName": "gpt-4o-mini"
+        },
+        "responsesApiEnabled": false,
+        "options": {
+          "temperature": 0.3,
+          "timeout": 60000,
+          "maxRetries": 2
+        }
+      },
+      "id": "355a9a0f-219e-4b39-8f6b-1dc34a5c4aff",
+      "name": "OpenAI Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        1344,
+        400
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": null,
+          "name": "Gateway credits",
+          "__aiGatewayManaged": true
+        }
+      }
+    },
+    {
+      "parameters": {
+        "schemaType": "manual",
+        "inputSchema": "{\"type\":\"object\",\"properties\":{\"email_subject\":{\"type\":\"string\",\"description\":\"Email subject line\"},\"email_body\":{\"type\":\"string\",\"description\":\"Full plain-text email body\"}},\"required\":[\"email_subject\",\"email_body\"],\"additionalProperties\":false}"
+      },
+      "id": "fa42b3f0-a4ce-4a5f-b68d-a3431459bd07",
+      "name": "Email Output Parser",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        1472,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ ($json.output && $json.output.email_subject) || '' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            },
+            {
+              "leftValue": "={{ ($json.output && $json.output.email_body) || '' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "3ae986f8-8d64-4bfe-b5d8-8907535c273d",
+      "name": "AI Email Complete?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.4,
+      "position": [
+        1680,
+        176
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "s1",
+              "name": "email_delivery_enabled",
+              "type": "boolean",
+              "value": false
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "id": "a4b2bdd9-4a8e-4af8-9bc7-a7f8f1294941",
+      "name": "Email Delivery Settings",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        1856,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.email_delivery_enabled }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "0a7bb88a-0171-482f-9e97-f2a552326047",
+      "name": "Email Delivery Enabled?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.4,
+      "position": [
+        2080,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "itskasif3@gmail.com",
+        "toEmail": "={{ $('Validate Request Format').first().json.author_email }}",
+        "subject": "={{ $('Generate Royalty Email').first().json.output.email_subject }}",
+        "emailFormat": "text",
+        "text": "={{ $('Generate Royalty Email').first().json.output.email_body }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "b96716b3-7540-47c7-b0fe-bc9949975d7a",
+      "name": "Send Royalty Email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        2304,
+        128
+      ],
+      "webhookId": "5f2aba2b-f202-42fa-a895-d1df6dad9971",
+      "credentials": {
+        "smtp": {
+          "id": "FO3vnYX3pxhAySur",
+          "name": "SMTP account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "r1",
+              "name": "request_id",
+              "type": "string",
+              "value": "={{ $('Validate Request Format').first().json.request_id }}"
+            },
+            {
+              "id": "r2",
+              "name": "author_id",
+              "type": "string",
+              "value": "={{ $('Validate Request Format').first().json.author_id }}"
+            },
+            {
+              "id": "r3",
+              "name": "status",
+              "type": "string",
+              "value": "={{ ($prevNode.name === 'Send Royalty Email' && $json['error']) ? 'Failed' : 'Success' }}"
+            },
+            {
+              "id": "r4",
+              "name": "email_subject",
+              "type": "string",
+              "value": "={{ $('Generate Royalty Email').first().json.output.email_subject }}"
+            },
+            {
+              "id": "r5",
+              "name": "email_body",
+              "type": "string",
+              "value": "={{ $('Generate Royalty Email').first().json.output.email_body }}"
+            },
+            {
+              "id": "r6",
+              "name": "error_message",
+              "type": "string",
+              "value": "={{ ($prevNode.name === 'Send Royalty Email' && $json['error']) ? 'Email delivery failed: ' + (typeof $json['error'] === 'string' ? $json['error'] : ($json['error'].message || 'unknown error')) : '' }}"
+            },
+            {
+              "id": "r7",
+              "name": "email_sent",
+              "type": "boolean",
+              "value": "={{ $prevNode.name === 'Send Royalty Email' && !$json['error'] }}"
+            },
+            {
+              "id": "r8",
+              "name": "completed_at",
+              "type": "string",
+              "value": "={{ $now.toUTC().toISO() }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "04586630-5643-4600-86ce-fc4256f65406",
+      "name": "Build Delivery Result",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        2528,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "x1",
+              "name": "request_id",
+              "type": "string",
+              "value": "={{ $json.request_id }}"
+            },
+            {
+              "id": "x2",
+              "name": "author_id",
+              "type": "string",
+              "value": "={{ $json.author_id }}"
+            },
+            {
+              "id": "x3",
+              "name": "status",
+              "type": "string",
+              "value": "={{ $json.status }}"
+            },
+            {
+              "id": "x4",
+              "name": "email_subject",
+              "type": "string",
+              "value": "={{ $json.email_subject || '' }}"
+            },
+            {
+              "id": "x5",
+              "name": "email_body",
+              "type": "string",
+              "value": "={{ $json.email_body || '' }}"
+            },
+            {
+              "id": "x6",
+              "name": "error_message",
+              "type": "string",
+              "value": "={{ $json.error_message || '' }}"
+            },
+            {
+              "id": "x7",
+              "name": "email_sent",
+              "type": "boolean",
+              "value": "={{ $json.email_sent === true }}"
+            },
+            {
+              "id": "x8",
+              "name": "completed_at",
+              "type": "string",
+              "value": "={{ $json.completed_at }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "6728645b-6fab-408a-a3bf-4ecc92c7e2f6",
+      "name": "Final Result",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        2384,
+        336
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://bookleaf-royalty-dashboard-23022.bubbleapps.io/version-test/api/1.1/wf/royalty_summary_callback",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpTemplatedCustomAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ request_id: $json.request_id, status: $json.status, email_content: $json.status === 'Success' ? ('Subject: ' + ($json.email_subject || '') + '\\n\\n' + ($json.email_body || '')) : '', error_details: $json.status === 'Failed' ? ($json.error_message || 'Unknown error') : '' }) }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "8a4aab2e-7f7e-43c9-b4f8-bcab10f07b38",
+      "name": "Send Bubble Callback",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        2608,
+        336
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "credentials": {
+        "httpTemplatedCustomAuth": {
+          "id": "ETDsN4nru2mpRSfG",
+          "name": "Bubble Callback Secret (Mohd K)"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "RSHrXUqsIa0IuuSS",
+          "cachedResultName": "bookleaf_royalty_requests"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "request_id",
+              "keyValue": "={{ $('Final Result').first().json.request_id }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "author_id": "={{ $('Final Result').first().json.author_id }}",
+            "status": "={{ $('Final Result').first().json.status }}",
+            "email_subject": "={{ $('Final Result').first().json.email_subject }}",
+            "email_body": "={{ $('Final Result').first().json.email_body }}",
+            "error_message": "={{ $('Final Result').first().json.error_message }}",
+            "email_sent": "={{ $('Final Result').first().json.email_sent }}",
+            "completed_at": "={{ $('Final Result').first().json.completed_at }}",
+            "callback_status": "Delivered"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "author_id",
+              "displayName": "author_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "email_subject",
+              "displayName": "email_subject",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "email_body",
+              "displayName": "email_body",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "error_message",
+              "displayName": "error_message",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "email_sent",
+              "displayName": "email_sent",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "completed_at",
+              "displayName": "completed_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "callback_status",
+              "displayName": "callback_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "58d4106f-5393-4196-9299-f91c8ce4e550",
+      "name": "Log Final Status",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        2832,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "RSHrXUqsIa0IuuSS",
+          "cachedResultName": "bookleaf_royalty_requests"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "request_id",
+              "keyValue": "={{ $('Final Result').first().json.request_id }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "author_id": "={{ $('Final Result').first().json.author_id }}",
+            "status": "={{ $('Final Result').first().json.status }}",
+            "email_subject": "={{ $('Final Result').first().json.email_subject }}",
+            "email_body": "={{ $('Final Result').first().json.email_body }}",
+            "error_message": "={{ $('Final Result').first().json.error_message }}",
+            "email_sent": "={{ $('Final Result').first().json.email_sent }}",
+            "completed_at": "={{ $('Final Result').first().json.completed_at }}",
+            "callback_status": "={{ 'Failed: ' + (typeof $json['error'] === 'string' ? $json['error'] : (($json['error'] && $json['error'].message) ? $json['error'].message : 'Bubble callback request failed')) }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "author_id",
+              "displayName": "author_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "email_subject",
+              "displayName": "email_subject",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "email_body",
+              "displayName": "email_body",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "error_message",
+              "displayName": "error_message",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "email_sent",
+              "displayName": "email_sent",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "completed_at",
+              "displayName": "completed_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "callback_status",
+              "displayName": "callback_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "14839957-4614-4e6c-bb62-462e8f39c3ab",
+      "name": "Log Callback Failure",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        2832,
+        432
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "errorMessage": "={{ 'Bubble callback failed for request_id ' + $('Final Result').first().json.request_id + ' (result status: ' + $('Final Result').first().json.status + '). The result is saved in the bookleaf_royalty_requests table; check the Send Bubble Callback node error, then retry this execution.' }}"
+      },
+      "id": "964de072-21d1-4bf4-b51d-64429390ecfa",
+      "name": "Fail Execution: Callback Unreachable",
+      "type": "n8n-nodes-base.stopAndError",
+      "typeVersion": 1,
+      "position": [
+        3056,
+        432
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "f1",
+              "name": "request_id",
+              "type": "string",
+              "value": "={{ $('Validate Request Format').first().json.request_id }}"
+            },
+            {
+              "id": "f2",
+              "name": "author_id",
+              "type": "string",
+              "value": "={{ $('Validate Request Format').first().json.author_id }}"
+            },
+            {
+              "id": "f3",
+              "name": "status",
+              "type": "string",
+              "value": "Failed"
+            },
+            {
+              "id": "f4",
+              "name": "email_subject",
+              "type": "string",
+              "value": ""
+            },
+            {
+              "id": "f5",
+              "name": "email_body",
+              "type": "string",
+              "value": ""
+            },
+            {
+              "id": "f6",
+              "name": "error_message",
+              "type": "string",
+              "value": "={{ $json.error_message ? $json.error_message : ('AI email generation failed: ' + (typeof $json['error'] === 'string' ? $json['error'] : (($json['error'] && $json['error'].message) ? $json['error'].message : 'the model returned no email subject or body.'))) }}"
+            },
+            {
+              "id": "f7",
+              "name": "email_sent",
+              "type": "boolean",
+              "value": false
+            },
+            {
+              "id": "f8",
+              "name": "completed_at",
+              "type": "string",
+              "value": "={{ $now.toUTC().toISO() }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "e17e3bb8-a85a-45bf-911a-cf16634fca80",
+      "name": "Build Failed Result",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        1968,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "errorMessage": "={{ \"Rejected royalty request with no usable request_id, so Bubble cannot be notified. \" + $json.error_message }}"
+      },
+      "id": "594fd784-f819-44a5-a4b8-c300e3f2fc63",
+      "name": "Reject Request Without request_id",
+      "type": "n8n-nodes-base.stopAndError",
+      "typeVersion": 1,
+      "position": [
+        912,
+        480
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Royalty Summary Webhook": {
+      "main": [
+        [
+          {
+            "node": "Validate Request Format",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Request Format": {
+      "main": [
+        [
+          {
+            "node": "Route Validation Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route Validation Result": {
+      "main": [
+        [
+          {
+            "node": "Find Existing Request",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reject Request Without request_id",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Existing Request": {
+      "main": [
+        [
+          {
+            "node": "Already Processing or Done?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Already Processing or Done?": {
+      "main": [
+        [
+          {
+            "node": "Log Duplicate (Skipped)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark Request Processing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Request Processing": {
+      "main": [
+        [
+          {
+            "node": "Check Royalty Totals",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Royalty Totals": {
+      "main": [
+        [
+          {
+            "node": "Request & Totals Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Request & Totals Valid?": {
+      "main": [
+        [
+          {
+            "node": "Generate Royalty Email",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Failed Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Royalty Email": {
+      "main": [
+        [
+          {
+            "node": "AI Email Complete?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Generate Royalty Email",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email Output Parser": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Generate Royalty Email",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Email Complete?": {
+      "main": [
+        [
+          {
+            "node": "Email Delivery Settings",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Failed Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email Delivery Settings": {
+      "main": [
+        [
+          {
+            "node": "Email Delivery Enabled?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email Delivery Enabled?": {
+      "main": [
+        [
+          {
+            "node": "Send Royalty Email",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Delivery Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Royalty Email": {
+      "main": [
+        [
+          {
+            "node": "Build Delivery Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Delivery Result": {
+      "main": [
+        [
+          {
+            "node": "Final Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Final Result": {
+      "main": [
+        [
+          {
+            "node": "Send Bubble Callback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Bubble Callback": {
+      "main": [
+        [
+          {
+            "node": "Log Final Status",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Callback Failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Callback Failure": {
+      "main": [
+        [
+          {
+            "node": "Fail Execution: Callback Unreachable",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Failed Result": {
+      "main": [
+        [
+          {
+            "node": "Final Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "14c621b0-33cb-4190-b69a-aee35d126afd",
+  "meta": {
+    "instanceId": "4381a70df3978a8f4c68df03610281b0aee4f18e5346ef3dd0b91f42a411304d"
+  },
+  "nodeGroups": [
+    {
+      "id": "9d543cfc-be55-4e1e-94b2-270b1f15b840",
+      "name": "Validate incoming request",
+      "nodeIds": [
+        "6b54ad6a-5eb2-4c3e-9eaf-02b05c8a3317",
+        "c853fae9-1f44-443e-bb58-85aae30fa334"
+      ],
+      "description": "Checks required author fields, email format, book list and numeric amounts; bad requests are routed to failure"
+    },
+    {
+      "id": "52248c48-4111-4a9d-8f5d-d0e182dad7b7",
+      "name": "Screen request before AI",
+      "nodeIds": [
+        "d101831e-fe99-432b-ad10-349e61119e8b",
+        "1b87ca85-3c45-4b88-8f55-65b804742dfe",
+        "417a85af-a4a1-4e9f-83ed-ce336bfe56dc",
+        "57d223f1-0c5e-433e-9363-65a9a7c4512e",
+        "69f0d372-08f6-4cef-b2b3-10c9d3addb07",
+        "881c91f9-f04b-4eba-8f7f-7f54f5890c00"
+      ],
+      "description": "Skips request_ids already in progress or done, marks new ones Processing, then fails bad payloads or totals that do not add up"
+    },
+    {
+      "id": "115f504a-4cdf-4616-a29b-8924ba61a1d8",
+      "name": "Write royalty email",
+      "nodeIds": [
+        "6a09a8b6-bb63-4b90-acca-fbaa3d1ae0ce",
+        "355a9a0f-219e-4b39-8f6b-1dc34a5c4aff",
+        "fa42b3f0-a4ce-4a5f-b68d-a3431459bd07",
+        "3ae986f8-8d64-4bfe-b5d8-8907535c273d"
+      ],
+      "description": "Turns the verified figures into a warm statement email with subject and body; errors or empty output fail the request"
+    },
+    {
+      "id": "99d22df7-d810-4c28-89d9-2054e17cf485",
+      "name": "Optionally email author",
+      "nodeIds": [
+        "a4b2bdd9-4a8e-4af8-9bc7-a7f8f1294941",
+        "0a7bb88a-0171-482f-9e97-f2a552326047",
+        "b96716b3-7540-47c7-b0fe-bc9949975d7a",
+        "04586630-5643-4600-86ce-fc4256f65406"
+      ],
+      "description": "Off by default. When enabled, sends the email to the author; a send failure marks the request Failed"
+    },
+    {
+      "id": "2db6b450-7742-4446-857e-2786bd6eb03d",
+      "name": "Report result to Bubble",
+      "nodeIds": [
+        "6728645b-6fab-408a-a3bf-4ecc92c7e2f6",
+        "8a4aab2e-7f7e-43c9-b4f8-bcab10f07b38",
+        "58d4106f-5393-4196-9299-f91c8ce4e550",
+        "14839957-4614-4e6c-bb62-462e8f39c3ab",
+        "964de072-21d1-4bf4-b51d-64429390ecfa"
+      ],
+      "description": "Posts Success or Failed to the Bubble record for this request_id, logs it, and fails the run visibly if Bubble is unreachable"
+    }
+  ],
+  "id": "tRtH8rNYqXKnYu5S",
+  "tags": []
+}
