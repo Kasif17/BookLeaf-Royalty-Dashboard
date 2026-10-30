@@ -1,0 +1,13 @@
+{
+  "name": "bookleaf-royalty-support",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "export:csv": "node scripts/export_bubble_csv.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
